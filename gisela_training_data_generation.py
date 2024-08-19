@@ -40,6 +40,10 @@ wk_id_list = [id_1,id_2,id_3]
 # I removed the view information
 
 
+train_img_size = 1024
+min_labels_per_image = 2
+min_coverage = 0.2
+
 SHOW_IMAGES = False
 CLEAR_OUTPUT_DIR = True
 
@@ -124,13 +128,18 @@ for wkid in wk_id_list:
         img_data_small = img_layer.get_finest_mag().read(absolute_bounding_box=wk_bbox)
         lbl_data_small = lbl_layers[label_indices["Myelin"]].get_finest_mag().read(absolute_bounding_box=wk_bbox)
     
+    bx = wk_bbox.topleft[0]
+    by = wk_bbox.topleft[1]
+    bw = wk_bbox.size.x
+    bh = wk_bbox.size.y
 
     lbl_dask_small = da.from_array(np.swapaxes(lbl_data_small,-1,-3), chunks=(1,2,512,512))
     img_dask_small = da.from_array(np.swapaxes(img_data_small,-1,-3), chunks=(1,2,512,512))
 
     from matplotlib.patches import Rectangle
     from PIL import Image
-    ax = plt.gca()
+    if SHOW_IMAGES:
+        ax = plt.gca()
 
     #get all annotations as bboxes
 
@@ -143,12 +152,13 @@ for wkid in wk_id_list:
     reg_table = regionprops_table(label_image=label_img,
                             properties=properties)
     reg_table = pd.DataFrame(reg_table)
+    tot_elems = len(reg_table.index)
 
     for index, row in reg_table.iterrows():
         obj_idx = row['label']
 
         bbox = skibbox2wkbbox(row.to_dict(), pSize)
-        print(f"bbox size: {bbox.size}")
+        #print(f"bbox size: {bbox.size}")
  
         myelin_lbl = lbl_layers[label_indices["Myelin"]].get_finest_mag().read(absolute_offset=bbox.topleft, size=bbox.size).squeeze()
         myelin_lbl = np.swapaxes(myelin_lbl,0,1)
@@ -168,7 +178,7 @@ for wkid in wk_id_list:
         if not expected_filled:
             myelin_bw_fill = fill_with_convex_hull(myelin_bw_fill)
 
-        myelin_lbl[np.nonzero(myelin_bw_fill)] = np.random.randint(low=1,high=255)
+        myelin_lbl[np.nonzero(myelin_bw_fill)] = np.random.randint(low=10,high=255)
     
         tx = bbox.topleft[0]
         ty = bbox.topleft[1]
@@ -180,19 +190,19 @@ for wkid in wk_id_list:
         xwd = xc+wx
         ywd = yc+wy
 
-        print(f"Running index: {index}")  
+        print(f"Running index: {index} of {tot_elems}")  
 
         try:
             lbl_dask_small[0,0,yc:ywd,xc:xwd] = np.where(myelin_lbl != 0, myelin_lbl, lbl_dask_small[0,0,yc:ywd,xc:xwd])
-        except:
-            print(f"    *** Index: {index} failed ***")  
+        except Exception as e:
+            print(f"    *** Index: {index} failed {e} ***")
             continue
 
     
 
 
-    train_img_size = 500
-    min_labels_per_image = 5
+    # train_img_size = 500
+    # min_labels_per_image = 5
 
     img_x_div = bw // train_img_size
     img_y_div = bh // train_img_size
@@ -211,20 +221,24 @@ for wkid in wk_id_list:
             end_y = start_y + train_img_size
             active_chunk = lbl_dask_cropped[0,start_y:end_y,start_x:end_x]
             nun = len(np.unique(active_chunk))
-            print(f"unique elems: {nun}") 
-            if nun > min_labels_per_image : #consider only chunks where we have "enough" data to be useful
+            nonzeroes = np.count_nonzero(active_chunk)
+            if active_chunk.size == 0:
+                continue
+            nonzero_fraction = nonzeroes / active_chunk.size
+            print(f"unique elems: {nun}, nonzero fraction: {nonzero_fraction}") 
+            if nun > min_labels_per_image and nonzero_fraction > min_coverage: #consider only chunks where we have "enough" data to be useful
                 print(f"using chunk {idx}")
 
                 #generate more data from single data by flipping, rotating
-                active_flip_ud = np.flipud(active_chunk)
-                active_flip_lr = np.fliplr(active_chunk)
-                active_rot = np.rot90(active_chunk)
+                #active_flip_ud = np.flipud(active_chunk)
+                #active_flip_lr = np.fliplr(active_chunk)
+                #active_rot = np.rot90(active_chunk)
 
                 #generate more data from single data by flipping, rotating and gauissian noise
                 img_chunk = img_dask_cropped[0,start_y:end_y,start_x:end_x]
-                img_flip_ud = np.flipud(img_chunk)
-                img_flip_lr = np.fliplr(img_chunk)
-                img_rot = skimage.util.random_noise(np.rot90(img_chunk),mode='gaussian')
+                #img_flip_ud = np.flipud(img_chunk)
+                #img_flip_lr = np.fliplr(img_chunk)
+                #img_rot = skimage.util.random_noise(np.rot90(img_chunk),mode='gaussian')
 
                 #save images of labels
                 tifffile.imsave(target_path + str(ANNOTATION_ID) + "_" + str(idx) + '.tiff',

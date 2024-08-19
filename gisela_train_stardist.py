@@ -1,6 +1,7 @@
 from __future__ import print_function, unicode_literals, absolute_import, division
 import sys
 import numpy as np
+from datetime import datetime
 import matplotlib
 #matplotlib.rcParams["image.interpolation"] = 'none'
 import matplotlib.pyplot as plt
@@ -16,6 +17,9 @@ from csbdeep.utils import Path, normalize
 from stardist import fill_label_holes, random_label_cmap, calculate_extents, gputools_available
 from stardist.matching import matching, matching_dataset
 from stardist.models import Config2D, StarDist2D, StarDistData2D
+
+#SHOW_IMAGES = False
+SHOW_IMAGES = True
 
 np.random.seed(42)
 lbl_cmap = random_label_cmap()
@@ -60,6 +64,9 @@ print('- validation:     %3d' % len(X_val))
 
 
 def plot_img_label(img, lbl, img_title="image", lbl_title="label", **kwargs):
+    if not SHOW_IMAGES:
+        return
+    
     fig, (ai,al) = plt.subplots(1,2, figsize=(12,5), gridspec_kw=dict(width_ratios=(1.25,1)))
     im = ai.imshow(img, cmap='gray', clim=(0,1))
     ai.set_title(img_title)    
@@ -95,7 +102,11 @@ conf = Config2D (
 print(conf)
 vars(conf)
 
-model = StarDist2D(conf, name='stardist', basedir='models')
+now = datetime.now()
+date_time = now.strftime("%Y%m%d-%H_%M")
+model_name = "sd_gisela_" + date_time
+print(f"Creating stardist model:  {model_name}")	
+model = StarDist2D(conf, name=model_name, basedir='models')
 
 median_size = calculate_extents(list(Y), np.median)
 fov = np.array(model._axes_tile_overlap('YX'))
@@ -160,7 +171,7 @@ else:
 Y_val_pred = [model.predict_instances(x, n_tiles=model._guess_n_tiles(x), show_tile_progress=False)[0]
               for x in tqdm(X_val)]
 
-index = 34
+index = 4
 plot_img_label(X_val[index],Y_val[index], lbl_title="label GT")
 plot_img_label(X_val[index],Y_val_pred[index], lbl_title="label Pred")
 
